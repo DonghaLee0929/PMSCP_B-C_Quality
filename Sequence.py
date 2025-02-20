@@ -1,65 +1,102 @@
 import numpy as np
-from ortools.sat.python import cp_model
-from Assignment import Assignment
-from collections import Counter, defaultdict
-from Env import Env
 from itertools import permutations
+from collections import Counter, defaultdict
+from ortools.sat.python import cp_model
+
+from Env import Env
+from Assignment import Assignment
+
 
 class Pattern:
     def __init__(self):
-        self.patterns = {}  # pattern 리스트 저장
-    
+        """Initialize the Pattern object with an empty dictionary."""
+        self.patterns = {}  # Stores patterns where keys are the first elements of new patterns
+
     def append(self, new_pattern):
         """
-        새로운 pattern을 추가
-        기존 pattern과 같으면 추가하지 않음
+        Add a new pattern if its first element is not already present.
+
+        Args:
+            new_pattern (tuple): A tuple containing:
+                - new_pattern[0]: A key representing the pattern category.
+                - new_pattern[1]: First associated value.
+                - new_pattern[2]: Second associated value.
+
+        Returns:
+            bool: Always returns True (pattern is either added or ignored).
         """        
-        # 새로운 패턴의 첫번째 원소가 기존 패턴들의 첫번째 원소와 겹치는지 확인
+        # Check if the first element of the new pattern is already stored
         if new_pattern[0] not in self.patterns:
-            # 겹치지 않으면 새로운 패턴 추가
+            # If not, add the new pattern with its associated values
             self.patterns[new_pattern[0]] = (new_pattern[1], new_pattern[2])
             
-        return True
-    
+        return True  # Always return True regardless of addition
+
     def __len__(self):
+        """Return the number of stored patterns."""
         return len(self.patterns)
     
 class Guide:
     def __init__(self):
-        self.guides = {}  # pattern 리스트 저장
-    
+        """Initialize the Guide object with an empty dictionary to store patterns."""
+        self.guides = {}  # Stores patterns as keys and their corresponding values
+
     def append(self, new_guide):
         """
-        새로운 pattern을 추가
-        기존 pattern과 같으면 추가하지 않음
+        Add a new pattern if it is not already covered by an existing pattern.
+
+        Args:
+            new_guide (tuple): A tuple where:
+                - new_guide[0] is a list representing a pattern (binary sequence).
+                - new_guide[1] is an integer value associated with the pattern.
+
+        Returns:
+            bool: True if the new pattern was added, False if it was redundant.
         """
+        # Step 1: Check if the new pattern is already covered by an existing one
         for guide in self.guides:
             if guide[1] >= new_guide[1] and (self.subset(new_guide[0], guide) or guide[0] == new_guide[0]):
-                return False
+                return False  # If redundant, do not add
 
-        # 이제 새거를 반영할거임
+        # Step 2: Identify existing patterns that should be removed
         delete_keys = []        
         for guide in self.guides:
-            if self.subset(guide, new_guide[0]) and guide[1] <= new_guide[1]:
+            if self.subset(guide, new_guide[0]) and guide[1] <= new_guide[1]:  # If new_guide is a better version
                 delete_keys.append(guide)
-            elif guide[0] == new_guide[0] and guide[1] < new_guide[1]:
+            elif guide[0] == new_guide[0] and guide[1] < new_guide[1]:  # If same pattern but with a better value
                 delete_keys.append(guide)
-        for key in delete_keys: self.guides.pop(key)
-                
+
+        # Step 3: Remove outdated patterns
+        for key in delete_keys:
+            self.guides.pop(key)
+
+        # Step 4: Add the new pattern
         self.guides[new_guide[0]] = new_guide[1]
         return True
-    
-    def subset(self, A, B): # A <= B 인지 확인하는 용도, B가 더 크도록
-        if sum(B) >= sum(A): # 두 패턴이 같으면 subset이 아님
+
+    def subset(self, A, B):
+        """
+        Check if pattern A is a subset of pattern B (A <= B).
+
+        Args:
+            A (list): The smaller pattern.
+            B (list): The larger pattern.
+
+        Returns:
+            bool: True if A is a subset of B, False otherwise.
+        """
+        if sum(B) >= sum(A):  # If B has more or equal 1s than A, it's not a subset
             return False
         
+        # Ensure that every 1 in A also exists in B
         for i, e in enumerate(B):
             if e == 1 and A[i] == 0:
                 return False
-            
+
         return True
     
     def __len__(self):
+        """Return the number of patterns stored."""
         return len(self.guides)
 
 class SolutionPrinter(cp_model.CpSolverSolutionCallback):
@@ -86,52 +123,84 @@ class SolutionPrinter(cp_model.CpSolverSolutionCallback):
         self.lbd_values.append(self.best_objective_bound)
 
 def pattern_to_infomation(machine_num, allocation, pattern: dict):
-    # 정보: [False, False, [index], [index, ub, lb], 중복 여부
-    pattern_information = [False for _ in range(machine_num)] # default는 처음 들어온 경우, len = 0
+    """
+    Convert pattern data into structured information for each machine.
+
+    Args:
+        machine_num (int): Number of machines.
+        allocation (np.ndarray): Allocation matrix where each column represents jobs assigned to a machine.
+        pattern (dict): Dictionary containing job patterns with:
+            - Keys (tuple): Job allocation pattern.
+            - Values (tuple): (upper bound, lower bound) or (None, None) if unknown.
+
+    Returns:
+        list: A list where each index corresponds to a machine and stores:
+            - False: If no matching pattern exists.
+            - [tuple]: If the pattern is solved optimally (upper bound == lower bound).
+            - [tuple, ub, lb]: If the pattern is feasible but not optimal.
+            - [tuple, None]: If the pattern is known but still unresolved.
+    """
+    # Initialize pattern information for each machine with default value 'False'
+    pattern_information = [False for _ in range(machine_num)]  
+
+    # Iterate through each machine
     for m in range(machine_num):
-        for pi, p in pattern.items():
-            pi = np.array(pi)
+        for pi, p in pattern.items():  # Iterate over stored patterns
+            pi = np.array(pi)  # Convert pattern key to numpy array
+
+            # Check if the machine's allocation exactly matches the pattern
             if (allocation[:, m] == pi).all():
-                if p[0] is not None:
-                    if p[0] == p[1]: # 중복되면서 optimal로 풀렸다면 cp 필요 없음, len = 1
-                        pattern_information[m] = [tuple(pi)]
+                if p[0] is not None:  # If the pattern has a known solution
+                    if p[0] == p[1]:  # If upper bound == lower bound (solved optimally)
+                        pattern_information[m] = [tuple(pi)]  # Store the pattern only
                         break
-                    else: # 중복되면서 feasible로 풀렸다면 중복되는 패턴의 ub, lb 활용, len = 3
+                    else:  # If feasible but not optimal, store pattern with ub and lb
                         pattern_information[m] = [tuple(pi), p[0], p[1]]
                         break
-                else: # 중복되면서 unknown으로 풀렸다면 시간 더 주기, len = 2
+                else:  # If the pattern is known but still unresolved (unknown bounds)
                     pattern_information[m] = [tuple(pi), None]
+
     return pattern_information
 
 def check_min_setup(env: Env, families, setup_time=1):
     """
-    families: 각 패밀리를 나타내는 dict, 예를 들어 {'a': [0,1,2], 'b': [3,4], 'c': [5,6], ...}
-    job_deadlines: job 별 deadline을 담은 dict
-    job_durations: job 별 실행시간을 담은 dict
-    transition_time: 패밀리 전환 시 대기 시간 (default: 1)
+    Check if there exists at least one ordering of job families that meets all deadlines.
+
+    Args:
+        env (Env): The environment containing job deadlines and durations.
+        families (dict): A dictionary where keys are family labels, and values are lists of job indices.
+                         Example: {'a': [0,1,2], 'b': [3,4], 'c': [5,6], ...}
+        setup_time (int, optional): Waiting time when switching between job families. Default is 1.
+
+    Returns:
+        bool: True if at least one valid ordering exists where all jobs finish before their deadlines, 
+              otherwise False.
     """
-    # 각 패밀리 내의 job들을 deadline 기준으로 미리 정렬
-    sorted_families = {family: sorted(jobs, key=lambda job: env.deadline[job])
-                         for family, jobs in families.items()}
-    
-    # 모든 패밀리 순열에 대해 체크
+    # Pre-sort jobs within each family based on their deadlines
+    sorted_families = {
+        family: sorted(jobs, key=lambda job: env.deadline[job])
+        for family, jobs in families.items()
+    }
+
+    # Check all possible orderings of job families
     for order in permutations(sorted_families.keys()):
-        time = 0
-        valid = True
-        # 순서대로 패밀리의 정렬된 job 리스트를 이어 붙여서 수행
+        time = 0  # Track the total elapsed time
+        valid = True  # Flag to check if the current order is feasible
+
+        # Process jobs in the given order of families
         for family in order:
             for job in sorted_families[family]:
-                time += env.duration[job]  # job 실행 시간 누적
-                if time > env.deadline[job]:
-                    # 현재 패밀리 내에서 deadline이 초과되었으므로 break (전체 순열 중단하지 않음)
-                    valid = False
+                time += env.duration[job]  # Accumulate job execution time
+                if time > env.deadline[job]:  # Check if the job exceeds its deadline
+                    valid = False  # Mark as invalid and break out of inner loop
                     break
-            time += setup_time  # 패밀리 전환 시 대기 시간 추가
+            time += setup_time  # Add setup time when switching families
 
         if valid:
-            return True
+            return True  # If at least one valid order exists, return True
 
-    return False
+    return False  # No valid order found
+
 
 class Sequence:
     def __init__(self, env, viz=False) -> None:
@@ -141,13 +210,14 @@ class Sequence:
         self.job_to_family = env.job_to_family
         self.machine_family_num = [0 for _ in range(env.machine_num)]
 
-    def reset(self, env, allocation):
-        self.allocation = allocation
+    def reset(self, env, assignment):
+        # Reset for re-assignment
+        self.allocation = assignment
 
         self.machine_jobs = [[] for _ in range(env.machine_num)]
         for machine_index in range(env.machine_num):
             for job_index in range(env.job_num):
-                if allocation[job_index, machine_index]:
+                if assignment[job_index, machine_index]:
                     self.machine_jobs[machine_index].append(job_index)
 
         self.temp_schedule = [[] for _ in range(env.machine_num)]
@@ -158,22 +228,44 @@ class Sequence:
         return alloc.schedule
     
     def branch(self, m):
-        cases = {fam: min(
-            (j for j in self.machine_jobs[m] if self.job_to_family[j] == fam 
-            and self.env.deadline[j] == min(self.env.deadline[x] for x in self.machine_jobs[m] if self.job_to_family[x] == fam) 
-            and self.env.duration[j] == min(self.env.duration[x] for x in self.machine_jobs[m] if self.job_to_family[x] == fam)),
-            key=lambda x: self.env.deadline[x],
-            default=None
-        ) for fam in self.count_dict[m].keys()}
-        # None이 아닌 항목과 None인 항목을 분리
+        """
+        Selects representative jobs from each family assigned to machine `m` based on 
+        the earliest deadline and shortest duration within each family.
+
+        Args:
+            m (int): The machine index.
+
+        Returns:
+            list: A list of selected job indices. If some families do not have a job,
+                the last element will be a tuple of the families that do have a job.
+                If no jobs are found, returns [None].
+        """
+        # Select one job from each family with the earliest deadline and shortest duration
+        cases = {
+            fam: min(
+                (j for j in self.machine_jobs[m] if self.job_to_family[j] == fam 
+                and self.env.deadline[j] == min(self.env.deadline[x] for x in self.machine_jobs[m] if self.job_to_family[x] == fam) 
+                and self.env.duration[j] == min(self.env.duration[x] for x in self.machine_jobs[m] if self.job_to_family[x] == fam)),
+                key=lambda x: self.env.deadline[x],  # Select the job with the earliest deadline in case of a tie
+                default=None  # If no job is found for a family, assign None
+            ) for fam in self.count_dict[m].keys()
+        }
+
+        # Separate non-None values from None values
         non_none_values = [value for value in cases.values() if value is not None]
-        if not non_none_values: # 1. None이 아닌 value가 하나도 없다면
+
+        if not non_none_values:  
+            # Case 1: If there are no valid jobs at all, return [None]
             cases = [None]
-        elif len(non_none_values) < len(self.count_dict[m]): # 2. None이 아닌 value가 하나 이상 있다면, 모두가 있지 않는다면
-            non_none_keys = tuple(key for key, value in cases.items() if value is not None) # 해당 value들을 모으고, 마지막 원소에 그 key들을 튜플로 추가
+        elif len(non_none_values) < len(self.count_dict[m]):  
+            # Case 2: If at least one job is found, but not for all families
+            # Store the valid jobs and append a tuple of the families that have a job
+            non_none_keys = tuple(key for key, value in cases.items() if value is not None)
             cases = non_none_values + [non_none_keys]
-        else: # 모두가 그런 value가 있다면
+        else:  
+            # Case 3: If every family has at least one job, return the selected jobs
             cases = non_none_values
+
         return cases
 
     def cp_parallel_sequence(self, time_limit, framework_time_limit, framework_elapsed_time, pattern: dict):

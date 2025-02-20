@@ -1,9 +1,10 @@
 import numpy as np
-from Env import Env
 from collections import defaultdict
-from gurobipy import Model, GRB, quicksum
 from typing import List, Dict
-import torch
+from gurobipy import Model, GRB, quicksum
+
+from Env import Env
+
 GRB_status = {2: 'OPTIMAL', 3: 'INFEASIBLE', 5: 'UNBOUNDED', 9: 'TIME_LIMIT'}
 
 class Ban:
@@ -234,7 +235,7 @@ class Assignment:
 
         model = Model("assignment")
         model.setParam('OutputFlag', self.viz)
-        model.setParam("TimeLimit", time_limit)  # 시간 제한 설정
+        model.setParam("TimeLimit", time_limit)
 
         # Variables
         assignments = model.addVars(job_num, machine_num, vtype=GRB.BINARY, name="assignments")
@@ -334,7 +335,7 @@ class Assignment:
         self.status = model.Status
 
         if model.Status == GRB.INFEASIBLE or model.Status == GRB.UNBOUNDED:
-            # print("No feasible solution found.", round(model.Runtime, 2), "seconds")
+            print("Assign Time", round(model.Runtime, 2), "Status INFEASIBLE")
             return False
         print("Assign Time", round(model.Runtime, 2), "Status", GRB_status[self.status], "Value", round(model.ObjVal))
         self.assignment = np.zeros((job_num, machine_num), dtype=bool)
@@ -347,9 +348,8 @@ class Assignment:
                     return None
   
         if model.Status == GRB.OPTIMAL:
-            # print(int(model.ObjVal), "Optimal", round(model.Runtime, 2), "seconds")
             return round(model.ObjVal)
-        # print(int(model.ObjVal), "Feasible", round(model.Runtime, 2), "seconds")
+        
         return round(model.ObjVal)
     
     def gurobi_assignment_min_setup_pattern(self, Gamma, Lambda, time_limit, pattern, guide, lb):
@@ -500,7 +500,7 @@ class Assignment:
         self.status = model.Status
 
         if model.Status == GRB.INFEASIBLE or model.Status == GRB.UNBOUNDED:
-            # print("No feasible solution found.", round(model.Runtime, 2), "seconds")
+            print("Assign Time", round(model.Runtime, 2), "Status INFEASIBLE")
             return False
         print("Assign Time", round(model.Runtime, 2), "Status", GRB_status[self.status], "Value", round(model.ObjVal))
         self.assignment = np.zeros((job_num, machine_num), dtype=bool)
@@ -515,8 +515,7 @@ class Assignment:
                     return None
   
         if model.Status == GRB.OPTIMAL:
-            # print(int(model.ObjVal), "Optimal", round(model.Runtime, 2), "seconds")
             return round(model.ObjVal)
-        # print(int(model.ObjVal), "Feasible", round(model.Runtime, 2), "seconds")
+        
         return round(model.ObjVal)
     

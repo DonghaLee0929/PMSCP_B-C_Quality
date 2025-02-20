@@ -64,7 +64,10 @@ class Environment:
             else:
                 return int(rng.triangular(left=a, mode=b, right=b))
         elif tight == 'very_high':
-            return rng.integers(a, b)
+            if rng.random() < 0.6:
+                return rng.integers(a, b)
+            else:
+                return int(rng.triangular(left=a, mode=b, right=b))
         else:
             raise TypeError("Invalid tightness type")
         

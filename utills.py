@@ -1,11 +1,12 @@
-from gurobipy import GRB
-from Assignment import Assignment, Ban
-from Sequence import Sequence, Pattern, Guide, check_min_setup
-from collections import defaultdict
-from itertools import combinations
-from Env import Env
 import time
 import csv
+from collections import defaultdict
+from itertools import combinations
+from gurobipy import GRB
+
+from Env import Env
+from Assignment import Assignment, Ban
+from Sequence import Sequence, Pattern, Guide, check_min_setup
 
 class Datarecoder:
     def __init__(self) -> None:
