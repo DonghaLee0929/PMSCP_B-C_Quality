@@ -389,28 +389,27 @@ def framework(env: Env, Gamma: float, Lambda: float, delta: float, recoder: Data
     best_assign_lb = None
     guide = Guide()  # Guide information: holds minimal setup value details
     pattern = Pattern()  # Pattern information: holds objective values and lower bounds (equal to the objective value if optimal),
-                        # for feasible and optimal and unknown cases
+                        # for feasible and optimal and unknown cases (None, None if unknown)
     ban = Ban()  # Ban information: stores patterns deemed infeasible
 
     assign = Assignment(env, False)
     seq = Sequence(env, False)
 
+    # For the first iteration, initialize ban and guide information
+    assign.ban_list = ban
+    ban = assign.insert_initial_ban()
+    insert_initial_guide(env, guide, pattern)
+    print(f"Initial Ban: {len(ban)}, Initial Pattern: {len(pattern)}, Initial Guide: {len(guide)}, Reasonable: {int(env.family_num/env.machine_num) + 2}")
+
     # Iterate for a maximum of 200 iterations
     for count in range(200):
         print(f"\nFramework iteration {count}")
-
-        # For the first iteration, initialize ban and guide information
-        if count == 0:
-            assign.ban_list = ban
-            ban = assign.insert_initial_ban()
-            insert_initial_guide(env, guide, pattern)
-            print(f"Initial Ban: {len(ban)}, Initial Guide: {len(guide)}, Reasonable: {int(env.family_num/env.machine_num) + 2}")
 
         pre_len = len(ban)  # Record the length of the ban list before assignment
 
         # Run the assignment procedure with current parameters and updated ban, pattern, and guide information
         alloc_result, edd_feasible, Lambda, ban, edd_iteration, best_assign_lb = assignment_edd(
-            assign, best_assign_lb, Gamma, Lambda, delta, recoder, ban, pattern.patterns, guide=guide.guides,
+            assign, best_assign_lb, Gamma, Lambda, delta, recoder, ban, pattern.patterns, guide.guides,
             assign_max_time=assign_max_time, max_time=max_time
         )
 
@@ -422,7 +421,7 @@ def framework(env: Env, Gamma: float, Lambda: float, delta: float, recoder: Data
                 print(f"Optimal pattern num: {len(optimal_patterns)}, Guide num: {len(guide)}, Ban num: {len(ban)}")
 
             # Check if the current assignment result matches the best known objective
-            if best == alloc_result:
+            if best <= alloc_result:
                 recoder.objective_value = best
                 print("Lower bound of sum of setup is equal to the best solution!")
                 break
@@ -449,7 +448,7 @@ def framework(env: Env, Gamma: float, Lambda: float, delta: float, recoder: Data
                 print(f"Solution: {temp_solution}, Sum: {temp_solution_sum}, Time: {round(time.time() - start_time, 2)}")
 
             # If the best known objective equals the assignment result, optimality is guaranteed
-            if best == alloc_result:
+            if best <= alloc_result:
                 recoder.objective_value = best
                 print("Lower bound of sum of setup is equal to the best solution!")
                 break

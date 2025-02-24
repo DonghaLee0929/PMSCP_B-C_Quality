@@ -1,0 +1,6 @@
+first_feasible_sol,first_feasible_time,total_ban_num,objective_value,total_iter_num,total_time,cp_feasible_sol,cp_feasible_time,optimal,cp_value,cp_time
+1,0.37,0,1,1,0.37,27.0,0.94,True,1.0,6.91
+2,0.28,1,2,1,0.28,25.0,0.94,,2.0,3600
+2,0.27,0,2,1,0.27,32.0,0.92,,2.0,3600
+3,0.38,2,2,2,0.99,27.0,0.98,,2.0,3600
+2,0.34,2,2,1,0.34,27.0,0.92,,2.0,3600

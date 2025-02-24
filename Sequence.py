@@ -269,89 +269,130 @@ class Sequence:
         return cases
 
     def cp_parallel_sequence(self, time_limit, framework_time_limit, framework_elapsed_time, pattern: dict):
+        """
+        Solves the job scheduling problem in parallel for multiple machines while considering pattern reuse.
+
+        Args:
+            time_limit (float): The base time limit for solving a single machine problem.
+            framework_time_limit (float): The total time limit for the framework.
+            framework_elapsed_time (float): The elapsed time in the framework.
+            pattern (dict): A dictionary containing known scheduling patterns and their objective values.
+
+        Returns:
+            tuple: 
+                - temp_pattern (list): Stores the computed scheduling patterns for each machine.
+                - pattern_information (list): Information about patterns used for decision-making.
+                - schedule (list): The generated schedules for each machine.
+        """
+
         pattern_information = []
-        if len(pattern) > 0: # pattern이 있는 경우
-            # 정보: [False, False, [index], [index, ub, lb], ...]
+        if len(pattern) > 0:  # If there are existing patterns
+            # Extract pattern information for each machine
+            # Information format: [False, False, [index], [index, ub, lb], ...]
             pattern_information = pattern_to_infomation(self.env.machine_num, self.allocation, pattern)
-            print(f"pattern selection: {[False if p is False else True for p in pattern_information]}")
-        
-        # EDD
+            print(f"Pattern selection: {[False if p is False else True for p in pattern_information]}")
+
+        # Compute the Earliest Due Date (EDD) heuristic
         self.EDD = self.use_EDD()
         for m in range(self.env.machine_num):
             self.count_dict[m] = Counter(tuple_item[-1] for tuple_item in self.EDD[m])
             self.machine_family_num[m] = len(self.count_dict[m].keys())
-            print(f"machine: {m} assigned jobs: {self.machine_jobs[m]}")
-        print(f"Family number per machines: {self.machine_family_num}")
+            print(f"Machine: {m}, Assigned jobs: {self.machine_jobs[m]}")
+        print(f"Family number per machine: {self.machine_family_num}")
 
-        # Main Part
-        temp_pattern = [[] for _ in range(self.env.machine_num)]
-        schedule = [[] for _ in range(self.env.machine_num)]
+        # Main processing loop
+        temp_pattern = [[] for _ in range(self.env.machine_num)]  # Stores patterns for each machine
+        schedule = [[] for _ in range(self.env.machine_num)]  # Stores the computed schedules
+
         for m in range(self.env.machine_num):
+            # Create a binary tuple representing job assignments for this machine
             assigned_job_tuple = tuple([1 if j in self.machine_jobs[m] else 0 for j in range(self.env.job_num)])
-            temp_pattern[m].append(assigned_job_tuple) # pattern의 첫번째 정보
+            temp_pattern[m].append(assigned_job_tuple)  # First element in pattern
 
-            if len(pattern_information) > 0 and pattern_information[m] is not False and len(pattern_information[m]) < 2: # 중복됐으면서 이전에 optimal로 풀렸다면
+            # If a previously solved optimal pattern exists, reuse it
+            if len(pattern_information) > 0 and pattern_information[m] is not False and len(pattern_information[m]) < 2:
                 pi = pattern_information[m][0]
                 ub, lb = pattern[pi][0], pattern[pi][1]
-                print("machine:", m, "status: OPTIMAL objective value:", ub, "lower bound:", lb)
+                print(f"Machine: {m}, Status: OPTIMAL, Objective value: {ub}, Lower bound: {lb}")
                 temp_pattern[m].append(ub)
                 temp_pattern[m].append(lb)
                 continue
-    
-            else: # 문제를 풀어야 하는 경우
-                found_unknown, found_solution = False, False
-                ub_hint, lb_hint = None, None
 
-                family_counter = defaultdict(list) 
+            else:
+                ub_hint, lb_hint = None, None  # Upper and lower bound hints
+
+                # Count jobs per family
+                family_counter = defaultdict(list)
                 for i, b in enumerate(assigned_job_tuple):
-                    if b == 1: family_counter[self.env.job_to_family[i]].append(i)
-                fam_num = len(family_counter)
+                    if b == 1:
+                        family_counter[self.env.job_to_family[i]].append(i)
+                
+                fam_num = len(family_counter)  # Number of families on this machine
 
-                # min setup 확인 -> lb 제공
+                # If there are multiple families, check if a minimum setup sequence exists
                 if fam_num > 1:
                     if check_min_setup(self.env, family_counter):
-                        print("machine:", m, "status: OPTIMAL objective value:", fam_num-1, "lower bound:", fam_num-1)
-                        temp_pattern[m].append(fam_num-1)
-                        temp_pattern[m].append(fam_num-1)
+                        print(f"Machine: {m}, Status: OPTIMAL, Objective value: {fam_num-1}, Lower bound: {fam_num-1}")
+                        temp_pattern[m].append(fam_num - 1)
+                        temp_pattern[m].append(fam_num - 1)
                         continue
-                    else: lb_hint = fam_num
+                    else:
+                        lb_hint = fam_num  # Provide a lower bound hint
 
-                # 가지치기 가지 제공
-                if fam_num > 1: cases = self.branch(m)
-                else: cases = [None]
-                if len(cases) > 1 and len(self.count_dict[m]) > 1: print(f"machine: {m} Now we use {len(cases)} branchs!")
+                # If no previous solution is applicable, solve the problem
+                found_unknown, found_solution = False, False
 
-                # 시간 재조정
+                # Generate branching cases for optimization
+                if fam_num > 1:
+                    cases = self.branch(m)
+                else:
+                    cases = [None]
+
+                if len(cases) > 1 and len(self.count_dict[m]) > 1:
+                    print(f"Machine: {m}, Now using {len(cases)} branches!")
+
+                # Adjust the time limit based on framework constraints
                 temp_time_limit = time_limit
-                if len(pattern_information) > 0 and pattern_information[m] is not False: # 중복된 경우 시간 더 주기
-                    temp_time_limit = max((framework_time_limit - framework_elapsed_time)/(len(cases) * (self.env.machine_num - m)), time_limit)
-                    print("time!!!", temp_time_limit, (framework_time_limit - framework_elapsed_time)/(len(cases) * (self.env.machine_num - m)))
-                    if len(pattern_information[m]) == 3: 
-                        ub_hint, lb_hint = pattern_information[m][1], pattern_information[m][2] # 중복됐으면서 이전에 feasible로 풀렸다면
+                if len(pattern_information) > 0 and pattern_information[m] is not False:  # If pattern reuse is possible, allocate more time
+                    temp_time_limit = max(
+                        (framework_time_limit - framework_elapsed_time) / (len(cases) * (self.env.machine_num - m)), 
+                        time_limit
+                    ) # Try to provide as much time as possible
+                    print("Check for additional time:", temp_time_limit, 
+                        (framework_time_limit - framework_elapsed_time) / (len(cases) * (self.env.machine_num - m)))
 
-                pre_result = len(self.machine_jobs[m]) # 목적식 값이 가장 작은 경우를 뽑기 위함
+                    # If the previous solution was feasible but not optimal, reuse its bounds
+                    if len(pattern_information[m]) == 3:
+                        ub_hint, lb_hint = pattern_information[m][1], pattern_information[m][2]
+
+                # Solve the scheduling problem for this machine
+                pre_result = len(self.machine_jobs[m])  # Initialize with the worst-case objective value
                 for _, case in enumerate(cases):
-                    result = self.cp_sequence_one_machine(m, temp_time_limit, ub_lb=(ub_hint, lb_hint), case=case) # 가능한 많은 시간을 제공
+                    result = self.cp_sequence_one_machine(m, temp_time_limit, ub_lb=(ub_hint, lb_hint), case=case)  
+
                     if result is None:
-                        found_unknown = True
+                        found_unknown = True  # Time limit exceeded
                         continue
-                    if result is not False and result[0] < pre_result:
+
+                    if result is not False and result[0] < pre_result:  # Keep track of the best found solution
                         pre_result = result[0]
                         temp = result
                         found_solution = True
                         schedule[m] = self.temp_schedule[m]
-                        if result[0] == self.machine_family_num[m] - 1:
-                            temp = result 
+
+                        if result[0] == self.machine_family_num[m] - 1:  # If we reach the minimum possible objective, stop early
                             break
-                if found_solution: 
-                    ub, lb = temp # feasible solution이면 p 길이가 3 고정
-                    temp_pattern[m].append(ub) 
-                    temp_pattern[m].append(lb) # pattern의 두번째 정보
-                elif found_unknown: # time over
-                    schedule[m] = []
+
+                # Store the computed result in temp_pattern
+                if found_solution:
+                    ub, lb = temp  # A feasible solution was found
+                    temp_pattern[m].append(ub)
+                    temp_pattern[m].append(lb)  # Second element in pattern
+                elif found_unknown:
+                    schedule[m] = []  # Time limit exceeded, result is unknown
                     temp_pattern[m].append(None)
-                else: # infeasible 
-                    temp_pattern[m].append(False)
+                else:
+                    temp_pattern[m].append(False)  # No feasible solution found
 
         return temp_pattern, pattern_information, schedule
 
